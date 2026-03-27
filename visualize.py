@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 from isp.black_level import subtract_black_level
 from isp.white_balance import white_balance
 from isp.demosaic import demosaic
-from isp.ccm import apply_ccm
+from isp.ccm import apply_ccm, load_ccm_table, interpolate_ccm
 from isp.gamma import apply_gamma
 from isp.yuv import rgb_to_yuv
 
@@ -53,10 +53,14 @@ def load_raw_and_meta(npy_path: str) -> tuple[np.ndarray, dict]:
 
 def run_all_stages(raw: np.ndarray, meta: dict) -> dict[str, np.ndarray]:
     """Run the full ISP chain and return all intermediate stages."""
+    json_path = os.path.join(os.path.dirname(__file__), "imx708.json")
+    ccm_table = load_ccm_table(json_path)
+
     bayer_bl = subtract_black_level(raw, meta["black_level"], meta["white_level"])
     bayer_wb = white_balance(bayer_bl)
     rgb_dem = demosaic(bayer_wb, pattern=meta["bayer_pattern"])
-    rgb_ccm = apply_ccm(rgb_dem)
+    ccm = interpolate_ccm(5910, ccm_table)
+    rgb_ccm = apply_ccm(rgb_dem, ccm)
     rgb_gamma = apply_gamma(rgb_ccm)
     yuv = rgb_to_yuv(rgb_gamma)
 
@@ -80,8 +84,8 @@ def _to_uint8_gray(x: np.ndarray) -> np.ndarray:
 
 
 def plot_stages(stages: dict[str, np.ndarray], save_path: str | None = None) -> None:
-    """Plot ISP stages in a 2x4 grid."""
-    fig, axs = plt.subplots(2, 4, figsize=(16, 8))
+    """Plot ISP stages in a 2x3 grid."""
+    fig, axs = plt.subplots(2, 3, figsize=(12, 8))
     axs[0, 0].imshow(_to_uint8_gray(stages["raw"]), cmap="gray", vmin=0, vmax=255)
     axs[0, 0].set_title("Raw_Bayer")
 
@@ -91,26 +95,14 @@ def plot_stages(stages: dict[str, np.ndarray], save_path: str | None = None) -> 
     axs[0, 2].imshow(_to_uint8_gray(stages["white_balance"]), cmap="gray", vmin=0, vmax=255)
     axs[0, 2].set_title("After_WhiteBalance")
 
-    axs[0, 3].imshow(np.clip(stages["demosaic"], 0.0, 1.0))
-    axs[0, 3].set_title("Demosaic_RGB")
+    axs[1, 0].imshow(np.clip(stages["demosaic"], 0.0, 1.0))
+    axs[1, 0].set_title("Demosaic_RGB")
 
-    axs[1, 0].imshow(np.clip(stages["ccm"], 0.0, 1.0))
-    axs[1, 0].set_title("After_CCM")
+    axs[1, 1].imshow(np.clip(stages["ccm"], 0.0, 1.0))
+    axs[1, 1].set_title("After_CCM")
 
-    axs[1, 1].imshow(np.clip(stages["gamma"], 0.0, 1.0))
-    axs[1, 1].set_title("After_Gamma_sRGB")
-
-    y = stages["yuv"][..., 0]
-    axs[1, 2].imshow(_to_uint8_gray(y), cmap="gray", vmin=0, vmax=255)
-    axs[1, 2].set_title("Y_Channel")
-
-    u = stages["yuv"][..., 1]
-    v = stages["yuv"][..., 2]
-    u_vis = np.clip(u + 0.5, 0.0, 1.0)
-    v_vis = np.clip(v + 0.5, 0.0, 1.0)
-    uv = np.concatenate([u_vis, v_vis], axis=1)
-    axs[1, 3].imshow(uv, cmap="gray", vmin=0.0, vmax=1.0)
-    axs[1, 3].set_title("U_and_V_(+0.5)_vis")
+    axs[1, 2].imshow(np.clip(stages["gamma"], 0.0, 1.0))
+    axs[1, 2].set_title("After_Gamma_sRGB")
 
     for ax in axs.ravel():
         ax.axis("off")
@@ -234,6 +226,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.capture:
+        args.compare_rpicam = True
         raw, meta = capture_raw_and_meta(args.capture_output)
         if args.save is None:
             args.save = os.path.join(os.path.dirname(args.capture_output) or ".", "stage_grid_live.png")
