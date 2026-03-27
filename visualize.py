@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from isp.black_level import subtract_black_level
-from isp.white_balance import white_balance
+from isp.white_balance import white_balance, load_ct_locus, white_balance_locus
 from isp.demosaic import demosaic
 from isp.ccm import apply_ccm, load_ccm_table, interpolate_ccm
 from isp.gamma import apply_gamma
@@ -55,11 +55,13 @@ def run_all_stages(raw: np.ndarray, meta: dict) -> dict[str, np.ndarray]:
     """Run the full ISP chain and return all intermediate stages."""
     json_path = os.path.join(os.path.dirname(__file__), "imx708.json")
     ccm_table = load_ccm_table(json_path)
+    locus = load_ct_locus(json_path)
 
     bayer_bl = subtract_black_level(raw, meta["black_level"], meta["white_level"])
-    bayer_wb = white_balance(bayer_bl)
+    bayer_wb, ct = white_balance_locus(bayer_bl, locus)
+    print(f"[DEBUG] estimated CT: {ct:.0f}K black_level: {meta['black_level']}")
     rgb_dem = demosaic(bayer_wb, pattern=meta["bayer_pattern"])
-    ccm = interpolate_ccm(5910, ccm_table)
+    ccm = interpolate_ccm(ct, ccm_table)
     rgb_ccm = apply_ccm(rgb_dem, ccm)
     rgb_gamma = apply_gamma(rgb_ccm)
     yuv = rgb_to_yuv(rgb_gamma)

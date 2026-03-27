@@ -16,9 +16,9 @@ import numpy as np
 from PIL import Image
 
 from isp.black_level import subtract_black_level
-from isp.white_balance import white_balance
+from isp.white_balance import white_balance, load_ct_locus, white_balance_locus
 from isp.demosaic import demosaic
-from isp.ccm import apply_ccm
+from isp.ccm import apply_ccm, load_ccm_table, interpolate_ccm
 from isp.gamma import apply_gamma
 from isp.yuv import rgb_to_yuv
 
@@ -77,12 +77,18 @@ def save_yuv_visualizations(yuv: np.ndarray, out_dir: str) -> None:
 
 def run_pipeline(bayer_raw: np.ndarray, meta: FrameMeta) -> dict[str, np.ndarray]:
     """Run the ISP chain and return gamma-RGB + YUV outputs."""
+    json_path = os.path.join(os.path.dirname(__file__), "imx708.json")
+    ccm_table = load_ccm_table(json_path)
+    locus = load_ct_locus(json_path)
+
     bayer = subtract_black_level(bayer_raw, meta.black_level, meta.white_level)
-    bayer = white_balance(bayer)
+    bayer, ct = white_balance_locus(bayer, locus)
+    print(f"[DEBUG] estimated CT: {ct:.0f}K")
     rgb   = demosaic(bayer, pattern=meta.bayer_pattern)
-    rgb   = apply_ccm(rgb)
+    ccm   = interpolate_ccm(ct, ccm_table)
+    rgb   = apply_ccm(rgb, ccm)
     rgb   = apply_gamma(rgb)
-    yuv = rgb_to_yuv(rgb)
+    yuv   = rgb_to_yuv(rgb)
     return {"rgb": rgb, "yuv": yuv}
 
 

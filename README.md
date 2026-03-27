@@ -115,6 +115,10 @@ Outputs:
 - Side-by-side: `data/compare_side_by_side.jpg`
 - Stage grid: `data/stage_grid_live.png`
 
+## Known Issues
+
+- **Green tint with bright light sources in frame**: The locus-based AWB uses the full-image channel means to compute gains. When a bright light source is in frame, its saturated pixels skew the R/G and B/G ratios, causing gain miscalculation and a color tint. Fix: exclude the top N% of pixels from the mean before computing gains.
+
 ## Known Gaps / Next Improvements
 
 - Mild green tint can appear depending on scene lighting.
